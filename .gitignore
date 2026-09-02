@@ -1,0 +1,25 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node.js & Frontend Builds
+node_modules/
+dist/
+.vite/
+
+# Database Files
+*.db
+*.sqlite3
+
+# Test Caches
+.pytest_cache/
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+Capstone/
