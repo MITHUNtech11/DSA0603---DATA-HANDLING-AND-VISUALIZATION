@@ -1,8 +1,10 @@
 -- Airline Business Intelligence Schema for SQLite
+DROP VIEW IF EXISTS vw_UserDataSummary;
 DROP VIEW IF EXISTS vw_RouteRevenue;
 DROP VIEW IF EXISTS vw_DelayHeatmap;
 DROP VIEW IF EXISTS vw_FlightOperational;
 
+DROP TABLE IF EXISTS user_data_master;
 DROP TABLE IF EXISTS bookings;
 DROP TABLE IF EXISTS fares;
 DROP TABLE IF EXISTS flights;
@@ -63,6 +65,28 @@ CREATE TABLE bookings (
     seat_number TEXT NOT NULL,
     FOREIGN KEY (flight_id) REFERENCES flights(flight_id),
     FOREIGN KEY (fare_id) REFERENCES fares(fare_id)
+);
+
+-- Master Unified User Table (Single Table for all user operations)
+CREATE TABLE user_data_master (
+    user_data_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    passenger_name TEXT NOT NULL,
+    passenger_email TEXT NOT NULL,
+    passenger_phone TEXT NOT NULL,
+    booking_reference TEXT NOT NULL UNIQUE,
+    flight_number TEXT NOT NULL,
+    airline_name TEXT NOT NULL,
+    route TEXT NOT NULL,
+    departure_time DATETIME NOT NULL,
+    seat_number TEXT NOT NULL,
+    fare_class TEXT NOT NULL,
+    ticket_price REAL NOT NULL,
+    user_status TEXT NOT NULL CHECK(user_status IN ('Booked', 'Cancelled', 'Delayed', 'Completed')),
+    delay_minutes INTEGER DEFAULT 0,
+    cancellation_reason TEXT,
+    refund_amount REAL DEFAULT 0.0,
+    last_updated DATETIME NOT NULL
 );
 
 -- Optimized Analytical View 1: vw_RouteRevenue
@@ -139,3 +163,17 @@ JOIN airports dest ON f.destination_airport_id = dest.airport_id
 LEFT JOIN bookings b ON f.flight_id = b.flight_id
 LEFT JOIN fares fr ON b.fare_id = fr.fare_id
 GROUP BY f.flight_id;
+
+-- Optimized Analytical View 4: vw_UserDataSummary
+CREATE VIEW vw_UserDataSummary AS
+SELECT 
+    COUNT(user_data_id) AS total_users,
+    SUM(CASE WHEN user_status = 'Booked' THEN 1 ELSE 0 END) AS total_booked,
+    SUM(CASE WHEN user_status = 'Cancelled' THEN 1 ELSE 0 END) AS total_cancelled,
+    SUM(CASE WHEN user_status = 'Delayed' THEN 1 ELSE 0 END) AS total_delayed,
+    SUM(CASE WHEN user_status = 'Completed' THEN 1 ELSE 0 END) AS total_completed,
+    ROUND(COALESCE(SUM(ticket_price), 0), 2) AS total_ticket_revenue,
+    ROUND(COALESCE(SUM(refund_amount), 0), 2) AS total_refund_payout,
+    ROUND(COALESCE(AVG(delay_minutes), 0), 1) AS avg_delay_mins
+FROM user_data_master;
+

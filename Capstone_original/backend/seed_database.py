@@ -129,9 +129,113 @@ def seed_db():
                 
             cursor.executemany("INSERT INTO bookings (flight_id, fare_id, passenger_name, booking_date, seat_number) VALUES (?, ?, ?, ?, ?);", bookings_list)
             
+    # 4. Seed Master Unified User Data Table (Single Table for all user operations)
+    print("Seeding Master Unified User Data Table (user_data_master)...")
+    
+    # Query created flights with airlines and routes for generating rich user data
+    cursor.execute("""
+        SELECT f.flight_number, al.airline_name, orig.city || ' (' || orig.iata_code || ') -> ' || dest.city || ' (' || dest.iata_code || ')' AS route, f.departure_time, f.status, f.delay_minutes
+        FROM flights f
+        JOIN airlines al ON f.airline_id = al.airline_id
+        JOIN airports orig ON f.origin_airport_id = orig.airport_id
+        JOIN airports dest ON f.destination_airport_id = dest.airport_id;
+    """)
+    flight_records = cursor.fetchall()
+    
+    cancellation_reasons = [
+        "Personal emergency / schedule conflict",
+        "Flight delay / schedule change by airline",
+        "Weather disruption / severe storm",
+        "Medical reasons / illness",
+        "Found alternative transportation",
+        "Corporate trip cancelled"
+    ]
+    
+    user_data_list = []
+    import string
+    
+    for idx in range(1, 151):
+        u_id = f"USR-{1000 + idx}"
+        p_name = f"{random.choice(first_names)} {random.choice(last_names)}"
+        email_domain = random.choice(["gmail.com", "yahoo.com", "outlook.com", "simats.edu.in", "corporate.com"])
+        p_email = f"{p_name.lower().replace(' ', '.')}@{email_domain}"
+        p_phone = f"+1-{random.randint(200, 999)}-{random.randint(100, 999)}-{random.randint(1000, 9999)}"
+        
+        # PNR code generator
+        pnr = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        fl = random.choice(flight_records)
+        fl_num, al_name, route_str, dep_str, fl_status, fl_delay = fl
+        
+        fclass = random.choices(["Economy", "Business", "First Class"], weights=[0.75, 0.18, 0.07])[0]
+        base_prices = {"Economy": random.uniform(150, 450), "Business": random.uniform(700, 1600), "First Class": random.uniform(2000, 3800)}
+        price = round(base_prices[fclass], 2)
+        seat = f"{random.randint(1, 38)}{random.choice(['A', 'B', 'C', 'D', 'E', 'F'])}"
+        
+        # Determine user status (Booked, Cancelled, Delayed, Completed)
+        dep_dt = datetime.strptime(dep_str, "%Y-%m-%d %H:%M:%S") if isinstance(dep_str, str) else dep_str
+        
+        if fl_status == "Cancelled":
+            u_status = "Cancelled"
+            delay_m = 0
+            reason = random.choice(cancellation_reasons)
+            refund = price # Full refund
+        elif fl_status == "Delayed":
+            u_status = "Delayed"
+            delay_m = fl_delay if fl_delay > 0 else random.randint(30, 150)
+            reason = None
+            refund = 0.0
+        else:
+            # Random mix of Booked and Completed
+            if random.random() < 0.2:
+                u_status = "Cancelled"
+                delay_m = 0
+                reason = random.choice(cancellation_reasons)
+                refund = round(price * random.choice([0.8, 1.0]), 2)
+            elif dep_dt < base_time + timedelta(days=2):
+                u_status = "Completed"
+                delay_m = 0
+                reason = None
+                refund = 0.0
+            else:
+                u_status = "Booked"
+                delay_m = 0
+                reason = None
+                refund = 0.0
+                
+        last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        user_data_list.append((
+            u_id, p_name, p_email, p_phone, pnr, fl_num, al_name, route_str,
+            dep_str, seat, fclass, price, u_status, delay_m, reason, refund, last_updated
+        ))
+        
+    cursor.executemany("""
+        INSERT INTO user_data_master (
+            user_id, passenger_name, passenger_email, passenger_phone, booking_reference,
+            flight_number, airline_name, route, departure_time, seat_number,
+            fare_class, ticket_price, user_status, delay_minutes, cancellation_reason,
+            refund_amount, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """, user_data_list)
+
     conn.commit()
     conn.close()
-    print(f"Successfully seeded database with {flights_inserted} flights, fares, and bookings!")
+    
+    print(f"Successfully seeded database with {flights_inserted} flights and {len(user_data_list)} master user records!")
+    
+    # 5. Export master user table to Excel file (user_data.xlsx)
+    try:
+        import pandas as pd
+        excel_path = os.path.join(os.path.dirname(__file__), "user_data.xlsx")
+        conn_ex = sqlite3.connect(DB_PATH)
+        df_users = pd.read_sql_query("SELECT * FROM user_data_master ORDER BY user_data_id ASC;", conn_ex)
+        df_users.to_excel(excel_path, index=False, sheet_name="Master_User_Data")
+        conn_ex.close()
+        print(f"Successfully exported single-table master user dataset to Excel at: {excel_path}")
+    except Exception as ex:
+        print(f"Warning: Could not export Excel file: {ex}")
 
 if __name__ == "__main__":
     seed_db()
+
